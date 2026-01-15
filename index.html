@@ -47,40 +47,48 @@
         .progress-bar {
             transition: width 0.4s ease;
         }
-
-        /* Skeleton/Placeholder pulse */
-        .loading-pulse {
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: .5; }
-        }
     </style>
 </head>
 <body>
 
-    <!-- SCREEN 1: IDLE -->
-    <div id="screen-idle" class="h-screen w-screen flex items-center justify-center p-6 bg-gradient-to-br from-indigo-900 via-purple-900 to-black">
-        <div class="max-w-md w-full bg-white/10 backdrop-blur-xl p-8 rounded-[2rem] border border-white/20 shadow-2xl text-center">
+    <!-- SCREEN 1: INPUT (IDLE) -->
+    <div id="screen-idle" class="h-screen w-screen flex items-center justify-center p-6 bg-gradient-to-br from-indigo-900 via-purple-900 to-black overflow-y-auto">
+        <div class="max-w-md w-full bg-white/10 backdrop-blur-xl p-8 rounded-[2rem] border border-white/20 shadow-2xl text-center mt-10 mb-10">
             <div class="w-20 h-20 bg-yellow-400 rounded-2xl flex items-center justify-center mx-auto mb-6 rotate-3 shadow-lg">
                 <i data-lucide="book-open" class="text-indigo-900 w-10 h-10"></i>
             </div>
             <h1 class="text-3xl font-extrabold mb-2 tracking-tight">AI Story Generator</h1>
-            <p class="text-indigo-200 mb-8 text-sm">Tulis judul impianmu, biarkan AI yang menulis, melukis, dan membacakannya untukmu.</p>
+            <p class="text-indigo-200 mb-6 text-sm">Buat buku cerita ajaib dengan kekuatan AI.</p>
             
-            <input 
-                id="input-title"
-                type="text"
-                placeholder="Contoh: Petualangan Kura-kura Terbang"
-                class="w-full bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-white placeholder-white/40 focus:outline-none focus:ring-2 ring-yellow-400 mb-6 transition-all"
-            />
+            <!-- API Key Input -->
+            <div class="text-left mb-4">
+                <label class="text-xs font-bold text-yellow-400 ml-2 uppercase tracking-wider">Langkah 1: Masukkan API Key</label>
+                <input 
+                    id="input-apikey"
+                    type="password"
+                    placeholder="Tempel Google Gemini API Key di sini"
+                    class="w-full mt-1 bg-black/40 border border-white/20 rounded-xl px-4 py-3 text-white text-sm placeholder-white/30 focus:outline-none focus:ring-2 ring-yellow-400 transition-all"
+                />
+                <p class="text-[10px] text-indigo-300 mt-1 ml-2">
+                    Belum punya? <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-yellow-400 hover:underline">Dapatkan API Key Gratis di sini</a>
+                </p>
+            </div>
+
+            <!-- Title Input -->
+            <div class="text-left mb-6">
+                <label class="text-xs font-bold text-yellow-400 ml-2 uppercase tracking-wider">Langkah 2: Judul Cerita</label>
+                <input 
+                    id="input-title"
+                    type="text"
+                    placeholder="Contoh: Petualangan Kucing Astronot"
+                    class="w-full mt-1 bg-white/10 border border-white/20 rounded-xl px-5 py-4 text-white placeholder-white/40 focus:outline-none focus:ring-2 ring-yellow-400 transition-all"
+                />
+            </div>
             
             <button 
                 id="btn-generate"
                 onclick="startGeneration()"
-                class="w-full bg-yellow-400 hover:bg-yellow-500 text-indigo-950 font-bold py-4 rounded-2xl flex items-center justify-center gap-3 transition-transform active:scale-95 shadow-xl disabled:opacity-50"
+                class="w-full bg-yellow-400 hover:bg-yellow-500 text-indigo-950 font-bold py-4 rounded-2xl flex items-center justify-center gap-3 transition-transform active:scale-95 shadow-xl"
             >
                 <i data-lucide="sparkles" class="w-5 h-5"></i>
                 Buat Buku Cerita
@@ -122,6 +130,12 @@
                         >
                             <i data-lucide="play" class="fill-current w-6 h-6"></i>
                             MULAI MEMBACA
+                        </button>
+                        <button 
+                             onclick="resetApp()"
+                             class="mt-4 bg-white/10 backdrop-blur text-white text-sm font-medium py-3 px-6 rounded-full hover:bg-white/20 transition-all"
+                        >
+                            Buat Baru
                         </button>
                     </div>
 
@@ -177,85 +191,116 @@
     <audio id="global-audio" class="hidden"></audio>
 
     <script>
-        var apiKey = ""; // Disertakan oleh environment
+        // Variabel global
+        let apiKey = ""; 
         let storyData = [];
         let images = {};
         let currentPage = 0;
         let isAutoPlaying = false;
-        let status = 'idle';
-
         const audioEl = document.getElementById('global-audio');
 
-        async function fetchWithRetry(url, options, retries = 5) {
+        // Fungsi Load: Cek apakah ada API key tersimpan
+        window.addEventListener('load', () => {
+            lucide.createIcons();
+            const savedKey = localStorage.getItem('gemini_api_key');
+            if (savedKey) {
+                document.getElementById('input-apikey').value = savedKey;
+            }
+        });
+
+        // Helper Fetch dengan Retry dan Error Handling
+        async function fetchWithRetry(url, options, retries = 3) {
             for (let i = 0; i < retries; i++) {
                 try {
                     const response = await fetch(url, options);
                     const data = await response.json();
-                    if (response.ok) return data;
-                    throw new Error(data.error?.message || "Request failed");
+                    
+                    if (!response.ok) {
+                        const errorMsg = data.error?.message || response.statusText;
+                        throw new Error(errorMsg);
+                    }
+                    return data;
                 } catch (e) {
                     if (i === retries - 1) throw e;
-                    await new Promise(r => setTimeout(r, Math.pow(2, i) * 1000));
+                    await new Promise(r => setTimeout(r, 1000));
                 }
             }
         }
 
         async function startGeneration() {
-            const inputEl = document.getElementById('input-title');
-            const title = inputEl.value.trim();
-            if (!title) return;
+            // 1. Ambil & Validasi API Key
+            const keyInput = document.getElementById('input-apikey').value.trim();
+            const titleInput = document.getElementById('input-title').value.trim();
 
-            status = 'writing';
+            if (!keyInput) {
+                alert("Mohon masukkan API Key Google Gemini Anda terlebih dahulu.");
+                return;
+            }
+            if (!titleInput) {
+                alert("Mohon masukkan judul cerita.");
+                return;
+            }
+
+            // Simpan key & set global
+            apiKey = keyInput;
+            localStorage.setItem('gemini_api_key', apiKey);
+
+            // Mulai Proses
             showScreen('screen-loading');
             updateLoading('Menulis Cerita...', 'Menenun kata-kata ajaib...', 'pencil', 10);
 
             try {
-                // 1. Generate Story
+                // A. Request Cerita
+                const storyPrompt = `Buatlah cerita anak 10 halaman berdasarkan judul: "${titleInput}". Output JSON: { "cover": { "title": "...", "imagePrompt": "..." }, "pages": [ { "text": "...", "imagePrompt": "..." } ] }. Gunakan Bahasa Indonesia untuk teks. ImagePrompt dalam bahasa Inggris (style: children book, colorful, 9:16 ratio).`;
+
                 const storyResult = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        contents: [{ parts: [{ text: `Buatlah cerita anak 10 halaman berdasarkan judul: "${title}".` }] }],
-                        systemInstruction: { parts: [{ text: `Anda adalah penulis buku anak. Output dalam JSON: { "cover": { "title": "...", "imagePrompt": "..." }, "pages": [ { "text": "...", "imagePrompt": "..." } ] }. 10 halaman dalam array pages. Gunakan Bahasa Indonesia untuk teks, Bahasa Inggris untuk imagePrompt (children book style, 9:16 aspect ratio).` }] },
+                        contents: [{ parts: [{ text: storyPrompt }] }],
                         generationConfig: { responseMimeType: "application/json" }
                     })
                 });
 
+                // Parsing hasil JSON
                 const parsed = JSON.parse(storyResult.candidates[0].content.parts[0].text);
                 storyData = [
                     { page: 0, title: parsed.cover.title, text: "", imagePrompt: parsed.cover.imagePrompt },
                     ...parsed.pages.map((p, i) => ({ ...p, page: i + 1 }))
                 ];
 
-                // 2. Generate Images
-                status = 'painting';
-                updateLoading('Melukis Ilustrasi...', 'Memberi warna pada imajinasi...', 'palette', 20);
+                // B. Request Gambar (Imagen)
+                updateLoading('Melukis Ilustrasi...', 'Menyiapkan kanvas...', 'palette', 20);
 
                 for (let i = 0; i < storyData.length; i++) {
                     try {
                         const imgResult = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`, {
                             method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                                instances: { prompt: storyData[i].imagePrompt + ", vibrant children's book illustration, vertical 9:16 aspect ratio, high quality" },
+                                instances: [{ prompt: storyData[i].imagePrompt + ", vibrant children's book illustration, vertical 9:16 aspect ratio, high quality, masterpiece" }],
                                 parameters: { sampleCount: 1 }
                             })
-                        });
+                        }, 2); // retry 2 kali saja untuk gambar
                         
                         if (imgResult.predictions?.[0]?.bytesBase64Encoded) {
                             images[i] = `data:image/png;base64,${imgResult.predictions[0].bytesBase64Encoded}`;
                         }
                     } catch (imgErr) {
-                        console.warn(`Gagal memuat gambar hal ${i}`, imgErr);
+                        console.warn(`Gagal gambar hal ${i}: ${imgErr.message}`);
+                        // Gunakan placeholder warna jika gagal
+                        images[i] = ''; 
                     }
-                    updateLoading('Melukis Ilustrasi...', `Memproses halaman ${i} dari 10`, 'palette', 20 + (i * 7.5));
+                    updateLoading('Melukis Ilustrasi...', `Memproses halaman ${i} dari 10`, 'palette', 20 + (i * 7));
                 }
 
-                status = 'reading';
+                // Selesai
                 renderPage(0);
                 showScreen('screen-story');
+
             } catch (error) {
-                console.error("Error utama:", error);
-                alert("Maaf, terjadi kesalahan saat menyusun cerita. Silakan coba judul lain.");
+                console.error("Critical Error:", error);
+                alert(`Gagal membuat cerita: ${error.message}\n\nPastikan API Key benar dan memiliki kuota.`);
                 showScreen('screen-idle');
             }
         }
@@ -264,13 +309,21 @@
             currentPage = index;
             const data = storyData[index];
             
-            document.getElementById('story-image').src = images[index] || '';
+            // Set Gambar (fallback jika kosong)
+            const imgEl = document.getElementById('story-image');
+            if (images[index]) {
+                imgEl.src = images[index];
+            } else {
+                imgEl.src = 'https://placehold.co/1080x1920/1e1e1e/FFF?text=Gambar+Gagal+Dimuat'; // Placeholder
+            }
+            
             document.getElementById('page-counter').innerText = `Halaman ${index} / 10`;
             
+            // Logic Tampilan Cover vs Halaman Isi
             if (index === 0) {
                 document.getElementById('cover-overlay').classList.remove('hide');
                 document.getElementById('narration-box').classList.add('hide');
-                document.getElementById('cover-title').innerText = data.title;
+                document.getElementById('cover-title').innerText = data.title || "Buku Cerita";
                 document.getElementById('btn-prev').classList.add('opacity-0', 'pointer-events-none');
             } else {
                 document.getElementById('cover-overlay').classList.add('hide');
@@ -279,23 +332,29 @@
                 document.getElementById('btn-prev').classList.remove('opacity-0', 'pointer-events-none');
             }
 
-            document.getElementById('btn-next').classList.toggle('opacity-0', index === 10);
-            document.getElementById('btn-next').classList.toggle('pointer-events-none', index === 10);
+            // Logic Tombol Next
+            const isLastPage = index === 10;
+            const btnNext = document.getElementById('btn-next');
+            if (isLastPage) {
+                btnNext.classList.add('opacity-0', 'pointer-events-none');
+            } else {
+                btnNext.classList.remove('opacity-0', 'pointer-events-none');
+            }
+
             document.getElementById('badge-auto').classList.toggle('hide', !isAutoPlaying);
-            
             lucide.createIcons();
         }
 
         async function playCurrentTTS() {
             const text = storyData[currentPage].text;
-            if (!text || status !== 'reading') return;
+            if (!text) return; // Tidak ada suara di cover
 
             try {
                 const response = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        contents: [{ parts: [{ text: `Bacakan dengan nada cerita anak yang lembut: ${text}` }] }],
+                        contents: [{ parts: [{ text: `Bacakan dengan nada cerita anak yang ceria: ${text}` }] }],
                         generationConfig: {
                             responseModalities: ["AUDIO"],
                             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } }
@@ -303,16 +362,17 @@
                     })
                 });
 
-                const part = response.candidates[0].content.parts[0];
+                const part = response.candidates?.[0]?.content?.parts?.[0];
+                if (!part || !part.inlineData) throw new Error("No audio data");
+
                 const audioData = part.inlineData.data;
-                // Parse sample rate from mimeType if available, else default 24000
-                const sampleRate = parseInt(part.inlineData.mimeType?.match(/rate=(\d+)/)?.[1]) || 24000;
+                const sampleRate = 24000; // Default Gemini TTS
                 
                 const audioBlob = pcmToWav(audioData, sampleRate);
                 const url = URL.createObjectURL(audioBlob);
 
                 audioEl.src = url;
-                audioEl.play().catch(e => console.warn("Audio autoplay blocked", e));
+                audioEl.play().catch(e => console.log("Autoplay blocked by browser"));
 
                 audioEl.onended = () => {
                     if (isAutoPlaying && currentPage < 10) {
@@ -322,7 +382,9 @@
                     }
                 };
             } catch (e) {
-                console.error("Gagal memutar audio:", e);
+                console.warn("TTS Gagal:", e);
+                // Jika TTS gagal, lanjut next page setelah jeda (jika auto)
+                if (isAutoPlaying) setTimeout(nextPage, 3000);
             }
         }
 
@@ -364,6 +426,12 @@
             document.getElementById('badge-auto').classList.add('hide');
         }
 
+        function resetApp() {
+            showScreen('screen-idle');
+            document.getElementById('input-title').value = '';
+            stopReading();
+        }
+
         function showScreen(id) {
             ['screen-idle', 'screen-loading', 'screen-story'].forEach(s => {
                 document.getElementById(s).classList.add('hide');
@@ -376,39 +444,48 @@
             document.getElementById('loading-status').innerText = status;
             document.getElementById('loading-subtext').innerText = sub;
             document.getElementById('loading-progress').style.width = `${progress}%`;
-            const iconContainer = document.getElementById('loading-icon');
-            iconContainer.setAttribute('data-lucide', icon);
+            document.getElementById('loading-icon').setAttribute('data-lucide', icon);
             lucide.createIcons();
         }
 
+        // Konverter Audio RAW (PCM) ke WAV agar bisa diputar browser
         function pcmToWav(base64, sampleRate) {
-            const buffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0)).buffer;
-            const view = new DataView(new ArrayBuffer(44 + buffer.byteLength));
-            const writeString = (offset, string) => {
-                for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i));
-            };
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const buffer = new ArrayBuffer(len);
+            const view = new Uint8Array(buffer);
+            for (let i = 0; i < len; i++) {
+                view[i] = binaryString.charCodeAt(i);
+            }
+
+            const wavBuffer = new ArrayBuffer(44 + buffer.byteLength);
+            const viewWav = new DataView(wavBuffer);
+
+            function writeString(offset, string) {
+                for (let i = 0; i < string.length; i++) {
+                    viewWav.setUint8(offset + i, string.charCodeAt(i));
+                }
+            }
+
             writeString(0, 'RIFF');
-            view.setUint32(4, 36 + buffer.byteLength, true);
+            viewWav.setUint32(4, 36 + buffer.byteLength, true);
             writeString(8, 'WAVE');
             writeString(12, 'fmt ');
-            view.setUint32(16, 16, true);
-            view.setUint16(20, 1, true);
-            view.setUint16(22, 1, true);
-            view.setUint32(24, sampleRate, true);
-            view.setUint32(28, sampleRate * 2, true);
-            view.setUint16(32, 2, true);
-            view.setUint16(34, 16, true);
+            viewWav.setUint32(16, 16, true);
+            viewWav.setUint16(20, 1, true);
+            viewWav.setUint16(22, 1, true);
+            viewWav.setUint32(24, sampleRate, true);
+            viewWav.setUint32(28, sampleRate * 2, true);
+            viewWav.setUint16(32, 2, true);
+            viewWav.setUint16(34, 16, true);
             writeString(36, 'data');
-            view.setUint32(40, buffer.byteLength, true);
-            new Uint8Array(view.buffer, 44).set(new Uint8Array(buffer));
-            return new Blob([view], { type: 'audio/wav' });
-        }
+            viewWav.setUint32(40, buffer.byteLength, true);
 
-        // Inisialisasi awal
-        window.addEventListener('load', () => {
-            lucide.createIcons();
-        });
+            new Uint8Array(wavBuffer, 44).set(new Uint8Array(buffer));
+            return new Blob([wavBuffer], { type: 'audio/wav' });
+        }
     </script>
 </body>
 </html>
+
 
